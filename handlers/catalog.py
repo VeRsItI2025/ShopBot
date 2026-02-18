@@ -42,7 +42,7 @@ async def choose_category(callback: CallbackQuery, state: FSMContext):
 
         kb = product_keyboard(product["id"])
         await callback.message.answer_photo(
-            photo=product["photo"],  # file_id или URL
+            photo=product["photo"],
             caption=(
                 f"📌 {product['name']}\n"
                 f"💰 Цена: {product['price']}$\n"

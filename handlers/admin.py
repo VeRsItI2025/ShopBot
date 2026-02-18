@@ -15,8 +15,8 @@ async def show_admin_menu(message: types.Message):
         return
     await message.answer("Админ-панель", reply_markup=admin_menu())
 
-# Добавление товара
 
+# Добавление товара
 @router.callback_query(F.data == "admin_add")
 async def admin_add_start(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("Введите название товара:")
@@ -106,7 +106,6 @@ async def set_new_value(message: types.Message, state: FSMContext):
     field = data["field"]
     value = message.text
 
-    # Если редактировать цену - преобразуем в число
 
     if field == "price":
         try:
@@ -153,7 +152,7 @@ FIELD_MAP = {
     "price": "price",
     "desc": "desc",
     "photo": "photo",
-    "описание": "desc",   # если админ вводит по-русски
+    "описание": "desc",
 
     "название": "name",
     "категория": "category",

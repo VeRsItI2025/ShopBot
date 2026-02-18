@@ -3,9 +3,7 @@ from db import (
     add_to_cart,
     get_cart,
     clear_cart,
-    remove_from_cart,
-    calculate_total,
-    get_product_by_id
+    calculate_total
 )
 from states.order_states import Order
 from keyboards.cart_kb import cart_menu
