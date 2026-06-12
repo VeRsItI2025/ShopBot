@@ -9,7 +9,6 @@ from keyboards import main_menu
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")  # лучше хранить токен в переменной окружения
-
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 router = Router()
@@ -29,3 +28,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    

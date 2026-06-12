@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS products (
     category TEXT NOT NULL,
     price REAL NOT NULL,
     desc TEXT,
-    photo TEXT,
+    photos TEXT,   -- список фото через ;
+    details TEXT,
     status TEXT DEFAULT 'Новый'
 )
 """)
@@ -44,42 +45,62 @@ CREATE TABLE IF NOT EXISTS cart (
 conn.commit()
 
 # --- CRUD функции для товаров ---
-def add_product(name, category, price, desc, photo):
+def add_product(name, category, price, desc, photos: list[str], details, status="Новый"):
     conn = sqlite3.connect("shop.db")
     cursor = conn.cursor()
+    photos_str = ";".join(photos)  # превращаем список в строку
     cursor.execute(
-        "INSERT INTO products (name, category, price, desc, photo, status) VALUES (?, ?, ?, ?, ?, ?)",
-        (name, category, price, desc, photo, "Новый")
+        "INSERT INTO products (name, category, price, desc, photos, details, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, category, price, desc, photos_str, details, status)
     )
     conn.commit()
     conn.close()
+
 
 def get_all_products():
     conn = sqlite3.connect("shop.db")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM products")
-    products = cursor.fetchall()
+    rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in products]
+    products = []
+    for row in rows:
+        product = dict(row)
+        product["photos"] = product.get("photos", "").split(";") if product.get("photos") else []
+        products.append(product)
+    return products
+
 
 def get_products_by_category(category: str):
     conn = sqlite3.connect("shop.db")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM products WHERE category = ?", (category,))
-    products = cursor.fetchall()
+    rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in products]
+    products = []
+    for row in rows:
+        product = dict(row)
+        product["photos"] = product.get("photos", "").split(";") if product.get("photos") else []
+        products.append(product)
+    return products
+
+
 
 def get_product_by_id(product_id: int):
     conn = sqlite3.connect("shop.db")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
-    product = cursor.fetchone()
+    row = cursor.fetchone()
     conn.close()
-    return dict(product) if product else None
+    if row:
+        product = dict(row)
+        product["photos"] = product["photos"].split(";") if product["photos"] else []
+        return product
+    return None
+
 
 def update_product(product_id: int, field: str, value):
     conn = sqlite3.connect("shop.db")
@@ -87,6 +108,7 @@ def update_product(product_id: int, field: str, value):
     cursor.execute(f"UPDATE products SET {field} = ? WHERE id = ?", (value, product_id))
     conn.commit()
     conn.close()
+
 
 def delete_product(product_id: int):
     conn = sqlite3.connect("shop.db")
@@ -155,14 +177,19 @@ def get_cart(user_id: int):
     cursor = conn.cursor()
     cursor.execute("""
         SELECT cart.id, cart.product_id, cart.quantity,
-               products.name, products.price, products.photo
+               products.name, products.price, products.photos
         FROM cart
         JOIN products ON cart.product_id = products.id
         WHERE cart.user_id = ?
     """, (user_id,))
-    items = cursor.fetchall()
+    rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in items]
+    items = []
+    for row in rows:
+        item = dict(row)
+        item["photos"] = item["photos"].split(";") if item["photos"] else []
+        items.append(item)
+    return items
 
 def clear_cart(user_id: int):
     conn = sqlite3.connect("shop.db")
@@ -204,7 +231,11 @@ if __name__ == "__main__":
         "Ноутбуки",
         1500,
         "Ноутбук для Gaming",
-        "https://i.postimg.cc/7Zz2ML2J/Chat-GPT-Image.png"
+        [
+            "https://i.postimg.cc/Hk1bk3tZ/Chat-GPT-Image-22-sic-2026-r-17-59-22.png",
+            "https://i.postimg.cc/Hk1bk3tZ/Chat-GPT-Image-22-sic-2026-r-17-59-22.png"
+        ],
+        "Процессор Intel i5, 8GB RAM, SSD 256GB"
     )
 
     add_product(
@@ -212,7 +243,10 @@ if __name__ == "__main__":
         "Телефоны",
         850,
         "Флагманский смартфон с отличной камерой",
-        "https://i.postimg.cc/brHtcVqx/Chat-GPT-Image.png"
+        [
+            "https://i.postimg.cc/Hk1bk3tZ/Chat-GPT-Image-22-sic-2026-r-17-59-22.png"
+        ],
+        "Экран 6.2'', 8GB RAM, 128GB ROM"
     )
 
     print("✅ База пересоздана и заполнена тестовыми товарами")

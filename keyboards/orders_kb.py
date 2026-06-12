@@ -7,8 +7,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 def confirm_order_kb():
     kb = [
         [
-            InlineKeyboardButton(text="Подвердить", callback_data="order_confirm"),
-            InlineKeyboardButton(text="Отменить", callback_data="order_cancel"),
+            InlineKeyboardButton(text="✅ Подвердить", callback_data="order_confirm"),
+            InlineKeyboardButton(text="❌ Отменить", callback_data="order_cancel"),
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)

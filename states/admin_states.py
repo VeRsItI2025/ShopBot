@@ -6,6 +6,7 @@ class AddProducts(StatesGroup):
     price = State()
     desc = State()
     photo = State()
+    details = State()
 
 class EditProducts(StatesGroup):
     choose_field = State()
