@@ -1,9 +1,14 @@
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
-from keyboards.admin_kb import admin_menu, delete_product_kb, edit_product_kb
+from aiogram.types import CallbackQuery
+from aiogram.fsm.state import StatesGroup, State
+from keyboards.admin_kb import admin_menu, delete_product_kb, edit_product_kb, admin_product_keyboard
 from states.admin_states import AddProducts, EditProducts
 import db
 from aiogram.types import ContentType
+from aiogram.filters import Command
+
+
 
 router = Router()
 ADMIN_IDS = [847895304]  # список админов
@@ -58,7 +63,8 @@ async def add_desc(message: types.Message, state: FSMContext):
     await message.answer("Отправьте фото товара:")
     await state.set_state(AddProducts.photo)
 
-# обработка фото
+
+# Обработка фото
 @router.message(AddProducts.photo, F.content_type == ContentType.PHOTO)
 async def add_photo(message: types.Message, state: FSMContext):
     photo_id = message.photo[-1].file_id
@@ -71,7 +77,7 @@ async def add_photo(message: types.Message, state: FSMContext):
     await message.answer("Введите подробные характеристики товара:")
     await state.set_state(AddProducts.details)
 
-# обработка «подробнее»
+# Обработка «подробнее»
 @router.message(AddProducts.details)
 async def add_details(message: types.Message, state: FSMContext):
     await state.update_data(details=message.text)
@@ -145,6 +151,7 @@ async def set_new_value(message: types.Message, state: FSMContext):
     await state.clear()
 
 
+
 # Хендлер для кнопки "Подробнее"
 @router.callback_query(F.data.startswith("info_"))
 async def show_details(callback: types.CallbackQuery):
@@ -198,6 +205,122 @@ async def delete_product_handler(callback: types.CallbackQuery):
     db.delete_product(product_id)
     await callback.message.edit_text("✅ Товар удалён!")
     await callback.answer()
+
+@router.message(Command("admin"))
+async def admin_panel(message: types.Message):
+    await message.answer("⚙️ Админ‑панель. Выберите действие:", reply_markup=admin_main_keyboard())
+
+
+# --- Скидки в Админ-панели ---
+@router.callback_query(lambda c: c.data == "admin_discount")
+async def admin_discount(callback: CallbackQuery):
+    products = db.get_all_products()
+    if not products:
+        await callback.message.answer("⚠️ В базе нет товаров.")
+        return
+
+    kb = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(
+                text=f"{p['name']} ({p['status']})",
+                callback_data=f"discount_{p['id']}"
+            )]
+            for p in products
+        ]
+    )
+    await callback.message.answer("📂 Выберите товар для управления:", reply_markup=kb)
+
+
+# FSM для изменения цены
+class DiscountFSM(StatesGroup):
+    waiting_for_new_price = State()
+    waiting_for_end_time = State()   # именно это имя
+
+# Обработчик кнопки "Скидка"
+@router.callback_query(lambda c: c.data.startswith("discount_"))
+async def discount_button(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    if len(parts) < 2 or not parts[1].isdigit():
+        await callback.message.answer("⚠️ Ошибка: некорректный callback_data для скидки.")
+        return
+
+    product_id = int(parts[1])
+    product = db.get_product_by_id(product_id)
+
+    if not product:
+        await callback.message.answer("⚠️ Товар не найден.")
+        return
+
+    # сохраняем данные в FSM
+    await state.update_data(product_id=product_id, old_price=product["price"])
+    await state.set_state(DiscountFSM.waiting_for_new_price)
+
+    await callback.message.answer(
+        f"Введите новую цену для товара:\n📌 {product['name']}\n💰 Старая цена: {product['price']}$"
+    )
+
+# Выбор каталога для того что бы сделать скидку
+@router.callback_query(lambda c: c.data.startswith("discount_cat_"))
+async def choose_category(callback: CallbackQuery):
+    category = callback.data.split("_")[2]
+    products = db.get_products_by_category(category)
+
+    if not products:
+        await callback.message.answer(f"⚠️ В категории {category} нет товаров.")
+        return
+
+    kb = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text=p["name"], callback_data=f"discount_product_{p['id']}")]
+            for p in products
+        ]
+    )
+    await callback.message.answer(f"📦 Выберите товар из категории {category}:", reply_markup=kb)
+
+# 2. Ввод новой цены
+
+    # пока НЕ очищаем state и НЕ сохраняем скидку в БД
+@router.message(DiscountFSM.waiting_for_new_price)
+async def set_discount_price(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("⚠️ Введите число (новую цену).")
+        return
+
+    data = await state.get_data()
+    product_id = data.get("product_id")
+    old_price = data.get("old_price")
+
+    new_price = float(message.text)
+    await state.update_data(new_price=new_price)
+
+    # переводим в состояние ожидания времени
+    await state.set_state(DiscountFSM.waiting_for_end_time)
+    await message.answer("Введите дату окончания скидки (формат: YYYY-MM-DD HH:MM)")
+
+    # пока НЕ очищаем state и НЕ сохраняем скидку в БД
+
+
+@router.message(DiscountFSM.waiting_for_end_time)
+async def set_discount_time(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    product_id = data.get("product_id")
+    new_price = data.get("new_price")
+
+    until_str = message.text.strip()
+    from datetime import datetime
+    try:
+        until = datetime.strptime(until_str, "%Y-%m-%d %H:%M")
+    except ValueError:
+        await message.answer("⚠️ Формат неверный. Используйте YYYY-MM-DD HH:MM")
+        return
+
+    # сохраняем скидку в БД
+    db.set_discount(product_id, new_price, until.isoformat())
+
+    await message.answer(f"✅ Скидка установлена до {until.strftime('%Y-%m-%d %H:%M')}")
+    await state.clear()
+
+
 
 # --- Словарь полей ---
 FIELD_MAP = {

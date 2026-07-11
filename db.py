@@ -9,15 +9,18 @@ cursor = conn.cursor()
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    category TEXT NOT NULL,
-    price REAL NOT NULL,
+    name TEXT,
+    category TEXT,
+    price REAL,
+    old_price REAL,
     desc TEXT,
-    photos TEXT,   -- список фото через ;
+    photos TEXT,
     details TEXT,
-    status TEXT DEFAULT 'Новый'
+    status TEXT DEFAULT 'Новый',
+    discount_until TEXT   -- время окончания скидки
 )
 """)
+
 
 # Создание таблицы заказов
 cursor.execute("""
@@ -218,6 +221,72 @@ def calculate_total(user_id: int) -> float:
     result = cursor.fetchone()
     conn.close()
     return result["total"] if result and result["total"] else 0.0
+
+# Скидки
+
+def set_discount(product_id: int, new_price: float, until: str):
+    conn = sqlite3.connect("shop.db")
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT price FROM products WHERE id = ?", (product_id,))
+    row = cursor.fetchone()
+    old_price = row[0] if row else None
+
+    cursor.execute("""
+        UPDATE products
+        SET old_price = ?, price = ?, status = 'Скидка', discount_until = ?
+        WHERE id = ?
+    """, (old_price, new_price, until, product_id))
+
+    conn.commit()
+    conn.close()
+
+
+def remove_expired_discounts():
+    import datetime
+    now = datetime.datetime.now().isoformat()
+
+    conn = sqlite3.connect("shop.db")
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE products
+        SET price = old_price, old_price = NULL, status = 'Новый', discount_until = NULL
+        WHERE discount_until IS NOT NULL AND discount_until < ?
+    """, (now,))
+    conn.commit()
+    conn.close()
+
+
+def set_discount_price(product_id: int, new_price: float):
+    conn = sqlite3.connect("shop.db")
+    cursor = conn.cursor()
+
+    # получаем текущую цену
+    cursor.execute("SELECT price FROM products WHERE id = ?", (product_id,))
+    row = cursor.fetchone()
+    old_price = row[0] if row else None
+
+    # обновляем запись
+    cursor.execute(
+        "UPDATE products SET old_price = ?, price = ?, status = 'Скидка' WHERE id = ?",
+        (old_price, new_price, product_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+
+
+def get_all_categories():
+    conn = sqlite3.connect("shop.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT category FROM products")
+    rows = cursor.fetchall()
+    conn.close()
+    # превращаем список кортежей в список строк
+    return [row[0] for row in rows]
+
 
 # --- Тестовые данные ---
 if __name__ == "__main__":

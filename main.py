@@ -4,6 +4,9 @@ import asyncio
 from dotenv import load_dotenv
 import os
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from db import remove_expired_discounts
+
 from handlers import start, catalog, cart, admin, orders
 from keyboards import main_menu
 
@@ -24,6 +27,11 @@ dp.include_router(orders.router)
 print("Бот Запущен!!!")
 
 async def main():
+    # Мой код
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(remove_expired_discounts, "interval", minutes=5)
+    scheduler.start()
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

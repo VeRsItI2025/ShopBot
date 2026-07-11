@@ -1,6 +1,8 @@
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
+from aiogram.fsm.state import StatesGroup, State
+
 
 from aiogram.types import InputMediaPhoto
 
@@ -8,8 +10,15 @@ import db  # модуль базы данных
 from keyboards.catalog_kb import product_keyboard, details_keyboard, price_filter_keyboard
 from keyboards.photo_kb import details_keyboard
 from services.product_service import fetch_all_products
+from keyboards.admin_kb import admin_product_keyboard
+
 
 router = Router()
+
+# FSM для изменения цены
+class DiscountFSM(StatesGroup):
+    waiting_for_new_price = State()
+    waiting_for_end_time = State()   # именно это имя
 
 
 # 📦 Показать список категорий (Reply-кнопка "Каталог")
@@ -45,12 +54,25 @@ async def choose_category(callback: CallbackQuery, state: FSMContext):
 
     product = products[0]
     kb = product_keyboard(product["id"])  # тут добавим кнопку "Следующий"
-    from aiogram.types import InputMediaPhoto
+
+    # --- вот здесь добавляем проверку на скидку ---
+    if product.get("status") == "Скидка" and product.get("old_price"):
+        price_text = f"💰 <s>{product['old_price']}$</s> ➡️ {product['price']}$"
+    else:
+        price_text = f"💰 Цена: {product['price']}$"
 
     await callback.message.answer_photo(
         product["photos"][0],
-        caption=f"📌 {product['name']}\n💰 Цена: {product['price']}$\nℹ️ {product['desc']}",
-        reply_markup=product_keyboard(product["id"])
+        caption=(
+            f"🏷️ {product['status']}\n" if product.get("status") == "Скидка" else ""
+        ) + (
+            f"📌 {product['name']}\n"
+            f"{price_text}\n"
+            f"📂 Категория: {product['category']}\n"
+            f"ℹ️ {product['desc']}"
+        ),
+        reply_markup=kb,
+        parse_mode="HTML"   # обязательно для <s> зачёркивания
     )
 
 
@@ -72,15 +94,44 @@ async def next_product(callback: CallbackQuery, state: FSMContext):
 
     product = products[index]
     kb = product_keyboard(product["id"])
-    await callback.message.answer_photo(
-        product["photos"][0],  # берём первое фото
-        caption=f"📌 {product['name']}\n💰 Цена: {product['price']}$\nℹ️ {product['desc']}",
-        reply_markup=kb
-    )
+
+    # проверка на скидку
+    if product.get("status") == "Скидка" and product.get("old_price"):
+        price_text = f"💰 <s>{product['old_price']}$</s> ➡️ {product['price']}$"
+    else:
+        price_text = f"💰 Цена: {product['price']}$"
+
+    photos = product.get("photos") or []
+    if photos:
+        await callback.message.answer_photo(
+            photos[0],
+            caption=(
+                f"🏷️ {product['status']}\n" if product.get("status") else ""
+            ) + (
+                f"📌 {product['name']}\n"
+                f"💰 Цена: {product['price']}$\n"
+                f"📂 Категория: {product['category']}\n"
+                f"ℹ️ {product['desc']}"
+            ),
+            reply_markup=kb
+        )
+    else:
+        await callback.message.answer(
+            (
+                f"🏷️ {product['status']}\n" if product.get("status") else ""
+            ) + (
+                f"📌 {product['name']}\n"
+                f"💰 Цена: {product['price']}$\n"
+                f"📂 Категория: {product['category']}\n"
+                f"ℹ️ {product['desc']}\n"
+                f"⚠️ Фото для этого товара отсутствует."
+            ),
+            reply_markup=kb
+        )
 
 
 
-# ⬅️ Преведущий товар
+# ⬅️ Предыдущий товар
 @router.callback_query(lambda c: c.data == "prev_product")
 async def prev_product(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -92,17 +143,42 @@ async def prev_product(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("⚠️ Нет товаров для показа.")
         return
 
-    # уменьшаем индекс
+    # уменьшаем индекс (циклический просмотр)
     index = (index - 1) % len(products)
     await state.update_data(index=index)
 
     product = products[index]
     kb = product_keyboard(product["id"])
-    await callback.message.answer_photo(
-        product["photos"][0],  # берём первое фото
-        caption=f"📌 {product['name']}\n💰 Цена: {product['price']}$\nℹ️ {product['desc']}",
-        reply_markup=kb
+
+    # проверка на скидку
+    if product.get("status") == "Скидка" and product.get("old_price"):
+        price_text = f"💰 <s>{product['old_price']}$</s> ➡️ {product['price']}$"
+    else:
+        price_text = f"💰 Цена: {product['price']}$"
+
+    caption = (
+        f"🏷️ {product['status']}\n" if product.get("status") == "Скидка" else ""
+    ) + (
+        f"📌 {product['name']}\n"
+        f"{price_text}\n"
+        f"📂 Категория: {product['category']}\n"
+        f"ℹ️ {product['desc']}"
     )
+
+    photos = product.get("photos") or []
+    if photos:
+        await callback.message.answer_photo(
+            photos[0],
+            caption=caption,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+    else:
+        await callback.message.answer(
+            caption + "\n⚠️ Фото для этого товара отсутствует.",
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
 
 
 
@@ -120,7 +196,7 @@ async def product_details(callback: CallbackQuery):
             f"📌 {product['name']} — {product['price']}$\n"
             f"Категория: {product['category']}\n"
             f"Описание: {product['desc']}\n\n"
-            f"🔎 Характеристики:\n{product['details']}"
+            f"🔎 Характеристики:\n{product['details'] if product['details'] else 'Нет дополнительных характеристик'}"
         ),
         reply_markup=details_keyboard(product_id, index=0)  # клавиатура с навигацией
     )
@@ -165,8 +241,15 @@ async def back_to_product(callback: CallbackQuery):
         types.InputMediaPhoto(media=product["photos"][0])
     )
     await callback.message.edit_caption(
-        caption=f"📌 {product['name']}\n💰 Цена: {product['price']}$\nℹ️ {product['desc']}",
-        reply_markup=kb
+        caption=(
+                    f"🏷️ {product['status']}\n" if product.get("status") == "Скидка" else ""
+                ) + (
+                    f"📌 {product['name']}\n"
+                    f"💰 Цена: {product['price']}$\n"
+                    f"📂 Категория: {product['category']}\n"
+                    f"ℹ️ {product['desc']}"
+                ),
+    reply_markup=kb
     )
 
 
@@ -184,7 +267,6 @@ async def back_to_catalog(callback: types.CallbackQuery):
         ]
     )
     await callback.message.answer("📂 Выберите категорию:", reply_markup=kb)
-
 
 
 
@@ -223,3 +305,36 @@ async def filter_price_desc(callback: CallbackQuery, state: FSMContext):
         reply_markup=kb
     )
 
+
+
+# пример показа карточки товара админу@router.message(lambda m: m.text == "/admin_product")
+@router.callback_query(lambda c: c.data.startswith("admin_discounts_"))
+async def show_admin_product(callback: CallbackQuery):
+    product_id = int(callback.data.split("_")[2])
+    product = db.get_product_by_id(product_id)
+
+    if not product:
+        await callback.message.answer(f"⚠️ Товар с id={product_id} не найден.")
+        return
+
+    caption = (
+        f"🏷️ {product['status']}\n" if product.get("status") == "Скидка" else ""
+    ) + (
+        f"📌 {product['name']}\n"
+        f"💰 Цена: {product['price']}$\n"
+        f"📂 Категория: {product['category']}\n"
+        f"ℹ️ {product['desc']}"
+    )
+
+    photos = product.get("photos") or []
+    if photos:
+        await callback.message.answer_photo(
+            photos[0],
+            caption=caption,
+            reply_markup=admin_product_keyboard(product_id, product["status"])
+        )
+    else:
+        await callback.message.answer(
+            caption + "\n⚠️ Фото отсутствует.",
+            reply_markup=admin_product_keyboard(product_id, product["status"])
+        )
